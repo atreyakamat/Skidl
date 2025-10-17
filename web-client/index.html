@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Skidl Web Client</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <h1>Skidl Web Client</h1>
+    <section class="connection">
+      <label>
+        Host IP (e.g. ws://192.168.43.1:50000)
+        <input id="hostUrl" type="text" placeholder="ws://" />
+      </label>
+      <label>
+        Display Name
+        <input id="playerName" type="text" placeholder="Player" />
+      </label>
+      <button id="connectBtn">Connect</button>
+      <button id="disconnectBtn" disabled>Disconnect</button>
+      <p id="status">Disconnected</p>
+    </section>
+    <section class="lobby">
+      <h2>Lobby</h2>
+      <button id="readyBtn" disabled>Toggle Ready</button>
+      <ul id="players"></ul>
+    </section>
+    <section class="drawing">
+      <h2>Drawing</h2>
+      <canvas id="canvas" width="600" height="400"></canvas>
+    </section>
+    <section class="chat">
+      <h2>Guess Chat</h2>
+      <div id="messages"></div>
+      <input id="guessInput" type="text" placeholder="Enter guess" />
+      <button id="guessBtn" disabled>Send Guess</button>
+    </section>
+  </main>
+  <script src="main.js"></script>
+</body>
+</html>

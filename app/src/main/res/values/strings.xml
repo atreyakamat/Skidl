@@ -1,0 +1,19 @@
+<resources>
+    <string name="app_name">Skidl</string>
+    <string name="welcome_title">Skidl</string>
+    <string name="welcome_subtitle">Hotspot-powered drawing and guessing with your friends.</string>
+    <string name="host_button">Host Game</string>
+    <string name="join_button">Join Game</string>
+    <string name="manual_join_label">Enter Host IP</string>
+    <string name="room_name_hint">Room name</string>
+    <string name="room_code_hint">Room code (optional)</string>
+    <string name="start_host">Start Hosting</string>
+    <string name="stop_host">Stop Hosting</string>
+    <string name="join_host">Join Selected Host</string>
+    <string name="player_name_hint">Your display name</string>
+    <string name="ready_up">Ready</string>
+    <string name="start_round">Start Round</string>
+    <string name="drawer_label">Drawer</string>
+    <string name="guess_placeholder">Type your guess…</string>
+    <string name="privacy_notice">Skidl runs entirely on your hotspot. Player names are stored only for this session.</string>
+</resources>
