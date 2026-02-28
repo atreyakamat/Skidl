@@ -24,6 +24,12 @@ class ClientNetworkingManager(
     private val json: Json,
     private val client: OkHttpClient = OkHttpClient()
 ) {
+    companion object {
+        private const val MAX_MESSAGE_SIZE = 16_384
+        private const val MAX_RECONNECT_ATTEMPTS = 3
+        private const val RECONNECT_DELAY_MS = 2000L
+    }
+
     private val _connectionState = MutableStateFlow(ConnectionState.Disconnected)
     val connectionState: StateFlow<ConnectionState> = _connectionState
 
@@ -34,15 +40,20 @@ class ClientNetworkingManager(
     val incoming: SharedFlow<SkidlMessage> = _incoming
 
     private var webSocket: WebSocket? = null
+    private var lastUrl: String? = null
+    private var reconnectAttempts = 0
 
     fun connect(url: String) {
         if (webSocket != null) return
+        lastUrl = url
+        reconnectAttempts = 0
         _connectionState.value = ConnectionState.Connecting
         val request = Request.Builder().url(url).build()
         webSocket = client.newWebSocket(request, SkidlClientListener())
     }
 
     fun disconnect() {
+        reconnectAttempts = MAX_RECONNECT_ATTEMPTS // prevent auto-reconnect
         webSocket?.close(1000, "client closed")
         webSocket = null
         _connectionState.value = ConnectionState.Disconnected
@@ -67,6 +78,10 @@ class ClientNetworkingManager(
             try {
                 if (text.isBlank()) return
                 val trimmed = text.trim()
+                if (trimmed.length > MAX_MESSAGE_SIZE) {
+                    Log.w("ClientNetworking", "Oversized message ignored (${trimmed.length} bytes)")
+                    return
+                }
                 val message = json.decodeFromString(SkidlMessageSerializer, trimmed)
                 scope.launch { _incoming.emit(message) }
             } catch (ex: SerializationException) {
@@ -84,7 +99,24 @@ class ClientNetworkingManager(
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
             Log.e("ClientNetworking", "WebSocket failure", t)
+            this@ClientNetworkingManager.webSocket = null
+            attemptReconnect()
+        }
+    }
+
+    private fun attemptReconnect() {
+        val url = lastUrl
+        if (url == null || reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
             _connectionState.value = ConnectionState.Disconnected
+            return
+        }
+        reconnectAttempts++
+        _connectionState.value = ConnectionState.Connecting
+        scope.launch {
+            kotlinx.coroutines.delay(RECONNECT_DELAY_MS)
+            Log.i("ClientNetworking", "Reconnect attempt $reconnectAttempts/$MAX_RECONNECT_ATTEMPTS")
+            val request = Request.Builder().url(url).build()
+            webSocket = client.newWebSocket(request, SkidlClientListener())
         }
     }
 }

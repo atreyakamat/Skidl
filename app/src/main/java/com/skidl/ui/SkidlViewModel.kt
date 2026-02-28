@@ -58,6 +58,9 @@ class SkidlViewModel(
     private val wordBank = WordBank(context)
     private val scoreManager = ScoreManager()
     private var currentSecretWord: String? = null
+    private var totalRounds: Int = 3
+    private var currentRoundNumber: Int = 0
+    private val guessTimestamps = mutableMapOf<String, MutableList<Long>>()
 
     private val discoveryListener = DiscoveryListener(applicationScope, json)
     private val hostNetworking = HostNetworkingManager(applicationScope, json)
@@ -81,6 +84,7 @@ class SkidlViewModel(
         observeDiscovery()
         observeHostMessages()
         observeClientMessages()
+        observeDisconnects()
     }
 
     override fun onCleared() {
@@ -155,6 +159,9 @@ class SkidlViewModel(
         clientConnectionMonitor?.cancel()
         roundTimerJob?.cancel()
         heartbeatJob?.cancel()
+        guessTimestamps.clear()
+        currentRoundNumber = 0
+        currentSecretWord = null
         _state.value = SkidlUiState()
     }
 
@@ -342,8 +349,19 @@ class SkidlViewModel(
                     is com.skidl.model.GuessNetworkMessage -> mirrorGuess(message)
                     is com.skidl.model.StrokeRemoveMessage -> mirrorStrokeRemove(message)
                     is com.skidl.model.CanvasClearMessage -> mirrorCanvasClear(message)
+                    is com.skidl.model.RoundEndMessage -> handleRoundEnd(message)
+                    is com.skidl.model.GameEndMessage -> handleGameEnd(message)
+                    is com.skidl.model.PlayerLeftMessage -> handlePlayerLeft(message)
                     else -> {}
                 }
+            }
+        }
+    }
+
+    private fun observeDisconnects() {
+        applicationScope.launch {
+            hostNetworking.disconnects.collect { playerId ->
+                handlePlayerDisconnect(playerId)
             }
         }
     }
@@ -358,8 +376,8 @@ class SkidlViewModel(
         )
         controller.updatePlayer(newPlayer)
         val lobby = controller.lobby.value
-    hostNetworking.broadcast(PlayerJoinedMessage(player = newPlayer))
-    hostNetworking.broadcast(com.skidl.model.LobbyUpdateMessage(players = lobby.players))
+        hostNetworking.broadcast(PlayerJoinedMessage(player = newPlayer))
+        hostNetworking.broadcast(com.skidl.model.LobbyUpdateMessage(players = lobby.players))
         gameController?.setPlayers(lobby.players)
         discoveryBroadcaster.update(lobby.settings.roomName, lobby.players.size)
         _state.update { it.copy(lobbyState = controller.lobby.value) }
@@ -376,10 +394,19 @@ class SkidlViewModel(
     private fun handleGuess(playerId: String, guess: com.skidl.model.GuessNetworkMessage) {
         val round = gameController?.round?.value ?: return
         val lobby = gameController?.lobby?.value ?: return
-            val isCorrect = currentSecretWord?.equals(guess.text, ignoreCase = true) == true
-            val guessMessage = GuessMessage(playerId, guess.text, System.currentTimeMillis(), isCorrect)
-            gameController?.appendGuess(guessMessage)
-            hostNetworking.broadcast(guess)
+
+        // Rate-limit: max 3 guesses per 2 seconds per player
+        val now = System.currentTimeMillis()
+        val timestamps = guessTimestamps.getOrPut(playerId) { mutableListOf() }
+        timestamps.removeAll { now - it > 2000 }
+        if (timestamps.size >= 3) return
+        timestamps.add(now)
+
+        val isCorrect = currentSecretWord?.equals(guess.text, ignoreCase = true) == true
+        val guessMessage = GuessMessage(playerId, guess.text, now, isCorrect)
+        gameController?.appendGuess(guessMessage)
+        hostNetworking.broadcast(guess)
+
         if (isCorrect) {
             val points = scoreManager.recordCorrectGuess(playerId, round.secondsRemaining)
             val player = lobby.players.firstOrNull { it.playerId == playerId }
@@ -398,10 +425,11 @@ class SkidlViewModel(
                 }
             }
         }
-            val latestRound = gameController?.round?.value
-            if (latestRound != null) {
-                _state.update { it.copy(roundState = latestRound) }
-            }
+
+        val latestRound = gameController?.round?.value
+        if (latestRound != null) {
+            _state.update { it.copy(roundState = latestRound) }
+        }
     }
 
     private fun handlePlayerJoined(message: PlayerJoinedMessage) {
@@ -428,25 +456,25 @@ class SkidlViewModel(
 
     private fun handleRoundStart(message: RoundStartMessage) {
         _state.update {
-            it.copy(roundState = it.roundState?.copy(
-                drawerId = message.drawerId,
-                roundId = message.roundId,
-                secondsRemaining = message.timeLimit,
-                strokes = emptyList(),
-                guesses = emptyList(),
-                scoreboard = it.lobbyState?.players ?: emptyList()
-            ) ?: com.skidl.model.RoundState(
-                drawerId = message.drawerId,
-                roundId = message.roundId,
-                secondsRemaining = message.timeLimit,
-                scoreboard = it.lobbyState?.players ?: emptyList()
-            ), screen = SkidlScreen.Game)
-        }
-    }
-
-    private fun handleSecretWord(message: SecretWordAssignedMessage) {
-        _state.update {
-            it.copy(roundState = (it.roundState ?: com.skidl.model.RoundState()).copy(secretWordHash = message.hash))
+            it.copy(
+                roundState = it.roundState?.copy(
+                    drawerId = message.drawerId,
+                    roundId = message.roundId,
+                    secondsRemaining = message.timeLimit,
+                    strokes = emptyList(),
+                    guesses = emptyList(),
+                    scoreboard = it.lobbyState?.players ?: emptyList()
+                ) ?: com.skidl.model.RoundState(
+                    drawerId = message.drawerId,
+                    roundId = message.roundId,
+                    secondsRemaining = message.timeLimit,
+                    scoreboard = it.lobbyState?.players ?: emptyList()
+                ),
+                screen = SkidlScreen.Game,
+                secretWordForDrawer = null,
+                lastRevealedWord = null,
+                gameOver = false
+            )
         }
     }
 
@@ -528,7 +556,7 @@ class SkidlViewModel(
 
     private fun mirrorGuess(message: com.skidl.model.GuessNetworkMessage) {
         val round = _state.value.roundState ?: return
-    val guess = GuessMessage(playerId = message.playerId, text = message.text, timestamp = System.currentTimeMillis(), isCorrect = false)
+        val guess = GuessMessage(playerId = message.playerId, text = message.text, timestamp = System.currentTimeMillis(), isCorrect = false)
         _state.update {
             it.copy(roundState = round.copy(guesses = round.guesses + guess))
         }
@@ -550,18 +578,90 @@ class SkidlViewModel(
         _state.update { it.copy(roundState = round.copy(strokes = emptyList())) }
     }
 
+    private fun handlePlayerDisconnect(playerId: String) {
+        val controller = gameController ?: return
+        val player = controller.lobby.value.players.firstOrNull { it.playerId == playerId } ?: return
+        val updatedPlayers = controller.lobby.value.players.filterNot { it.playerId == playerId }
+        controller.setPlayers(updatedPlayers)
+        val lobby = controller.lobby.value
+        hostNetworking.broadcast(com.skidl.model.PlayerLeftMessage(playerId = playerId, name = player.name))
+        hostNetworking.broadcast(com.skidl.model.LobbyUpdateMessage(players = lobby.players))
+        discoveryBroadcaster.update(lobby.settings.roomName, lobby.players.size)
+        _state.update {
+            it.copy(
+                lobbyState = lobby,
+                error = "${player.name} disconnected"
+            )
+        }
+    }
+
+    private fun handlePlayerLeft(message: com.skidl.model.PlayerLeftMessage) {
+        _state.update {
+            val lobby = it.lobbyState?.copy(
+                players = it.lobbyState.players.filterNot { p -> p.playerId == message.playerId }
+            )
+            it.copy(lobbyState = lobby, error = "${message.name} disconnected")
+        }
+    }
+
+    private fun handleRoundEnd(message: com.skidl.model.RoundEndMessage) {
+        _state.update {
+            val updatedRound = it.roundState?.copy(scoreboard = message.scores)
+            it.copy(
+                screen = SkidlScreen.Scores,
+                roundState = updatedRound,
+                lastRevealedWord = message.word,
+                secretWordForDrawer = null,
+                lobbyState = it.lobbyState?.copy(players = message.scores)
+            )
+        }
+    }
+
+    private fun handleGameEnd(message: com.skidl.model.GameEndMessage) {
+        _state.update {
+            it.copy(
+                screen = SkidlScreen.Scores,
+                lobbyState = it.lobbyState?.copy(players = message.scores),
+                roundState = it.roundState?.copy(scoreboard = message.scores),
+                gameOver = true,
+                secretWordForDrawer = null,
+                lastRevealedWord = null
+            )
+        }
+    }
+
+    private fun handleSecretWord(message: SecretWordAssignedMessage) {
+        // For the drawer, the "hash" field now contains the actual word
+        _state.update {
+            it.copy(
+                roundState = (it.roundState ?: com.skidl.model.RoundState()).copy(secretWordHash = message.hash),
+                secretWordForDrawer = if (it.playerId == message.drawerId) message.hash else null
+            )
+        }
+    }
+
     fun hostStartRound() {
         viewModelScope.launch {
             val controller = gameController ?: return@launch
+            currentRoundNumber++
             val drawerId = pickNextDrawer()
             val word = wordBank.nextWord()
             currentSecretWord = word
+            guessTimestamps.clear()
             controller.startRound(drawerId, word, controller.lobby.value.settings.roundTimeSeconds)
             scoreManager.getScores(controller.lobby.value.players)
             val round = controller.round.value
             hostNetworking.broadcast(RoundStartMessage(drawerId = drawerId, roundId = round.roundId ?: "", timeLimit = round.secondsRemaining))
-            hostNetworking.broadcast(SecretWordAssignedMessage(drawerId = drawerId, hash = round.secretWordHash ?: ""))
-            _state.update { it.copy(roundState = round, screen = SkidlScreen.Game) }
+            hostNetworking.sendTo(drawerId, SecretWordAssignedMessage(drawerId = drawerId, hash = word))
+            _state.update {
+                it.copy(
+                    roundState = round,
+                    screen = SkidlScreen.Game,
+                    secretWordForDrawer = if (it.playerId == drawerId) word else null,
+                    currentRound = currentRoundNumber,
+                    totalRounds = totalRounds
+                )
+            }
             roundTimerJob?.cancel()
             roundTimerJob = viewModelScope.launch {
                 var remaining = round.secondsRemaining
@@ -573,8 +673,64 @@ class SkidlViewModel(
                     val updatedRound = controller.round.value
                     _state.update { it.copy(roundState = updatedRound) }
                 }
-                _state.update { it.copy(screen = SkidlScreen.Scores) }
+                // Round ended: broadcast round-end to all clients
+                val finalScores = scoreManager.getScores(controller.lobby.value.players)
+                controller.updateScores(finalScores)
+                val revealedWord = currentSecretWord ?: "???"
+                hostNetworking.broadcast(com.skidl.model.RoundEndMessage(word = revealedWord, scores = finalScores))
+                currentSecretWord = null
+                _state.update {
+                    it.copy(
+                        screen = SkidlScreen.Scores,
+                        roundState = controller.round.value,
+                        secretWordForDrawer = null,
+                        lastRevealedWord = revealedWord
+                    )
+                }
             }
+        }
+    }
+
+    fun hostNextRound() {
+        if (currentRoundNumber >= totalRounds) {
+            endGame()
+        } else {
+            hostStartRound()
+        }
+    }
+
+    fun backToLobby() {
+        roundTimerJob?.cancel()
+        currentSecretWord = null
+        currentRoundNumber = 0
+        scoreManager.reset()
+        guessTimestamps.clear()
+        _state.update {
+            it.copy(
+                screen = SkidlScreen.Lobby,
+                roundState = null,
+                secretWordForDrawer = null,
+                lastRevealedWord = null,
+                currentRound = 0,
+                totalRounds = totalRounds
+            )
+        }
+    }
+
+    private fun endGame() {
+        val controller = gameController ?: return
+        val finalScores = scoreManager.getScores(controller.lobby.value.players)
+        controller.updateScores(finalScores)
+        hostNetworking.broadcast(com.skidl.model.GameEndMessage(scores = finalScores))
+        currentSecretWord = null
+        _state.update {
+            it.copy(
+                screen = SkidlScreen.Scores,
+                roundState = controller.round.value,
+                secretWordForDrawer = null,
+                lastRevealedWord = null,
+                gameOver = true
+            )
         }
     }
 
@@ -615,10 +771,15 @@ data class SkidlUiState(
     val playerId: String = "",
     val displayName: String = "",
     val roomCode: String? = null,
-    val roomName: String = "HotspotSkribble",
+    val roomName: String = "Hotspot Skribble",
     val manualIp: String = "",
     val hostAddress: String = "",
-    val error: String? = null
+    val error: String? = null,
+    val secretWordForDrawer: String? = null,
+    val lastRevealedWord: String? = null,
+    val currentRound: Int = 0,
+    val totalRounds: Int = 3,
+    val gameOver: Boolean = false
 )
 
 enum class SkidlScreen {

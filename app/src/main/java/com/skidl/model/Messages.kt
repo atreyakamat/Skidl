@@ -55,14 +55,15 @@ data class StrokePointMessage(
     override val type: String = "stroke_point",
     val strokeId: String,
     val x: Float,
+    val y: Float,
+    val timestamp: Long
+) : SkidlMessage
 
 @Serializable
 @SerialName("stroke_remove")
-    val y: Float,
+data class StrokeRemoveMessage(
     override val type: String = "stroke_remove",
     val strokeId: String
-) : SkidlMessage
-    val timestamp: Long
 ) : SkidlMessage
 
 @Serializable
@@ -146,4 +147,27 @@ data class TimerUpdateMessage(
 @SerialName("canvas_clear")
 data class CanvasClearMessage(
     override val type: String = "canvas_clear"
+) : SkidlMessage
+
+@Serializable
+@SerialName("player_left")
+data class PlayerLeftMessage(
+    override val type: String = "player_left",
+    val playerId: String,
+    val name: String
+) : SkidlMessage
+
+@Serializable
+@SerialName("round_end")
+data class RoundEndMessage(
+    override val type: String = "round_end",
+    val word: String,
+    val scores: List<Player>
+) : SkidlMessage
+
+@Serializable
+@SerialName("game_end")
+data class GameEndMessage(
+    override val type: String = "game_end",
+    val scores: List<Player>
 ) : SkidlMessage

@@ -22,11 +22,21 @@ class HostNetworkingManager(
     private val scope: CoroutineScope,
     private val json: Json
 ) {
+    companion object {
+        private const val MAX_MESSAGE_SIZE = 16_384 // 16KB max message
+    }
+
     private val _incomingMessages = MutableSharedFlow<Pair<String?, SkidlMessage>>(
         extraBufferCapacity = 16,
         onBufferOverflow = BufferOverflow.DROP_OLDEST
     )
     val incomingMessages: SharedFlow<Pair<String?, SkidlMessage>> = _incomingMessages
+
+    private val _disconnects = MutableSharedFlow<String>(
+        extraBufferCapacity = 8,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
+    val disconnects: SharedFlow<String> = _disconnects
 
     private val connections = mutableMapOf<String, WebSocket>()
     private var server: SkidlHostServer? = null
@@ -64,6 +74,7 @@ class HostNetworkingManager(
             val playerId = connections.entries.firstOrNull { it.value == conn }?.key
             if (playerId != null) {
                 connections.remove(playerId)
+                scope.launch { _disconnects.emit(playerId) }
             }
             Log.d("HostNetworking", "Client disconnected: ${playerId ?: conn.remoteSocketAddress}")
         }
@@ -72,6 +83,10 @@ class HostNetworkingManager(
             try {
                 val trimmed = message.trim()
                 if (trimmed.isEmpty()) return
+                if (trimmed.length > MAX_MESSAGE_SIZE) {
+                    Log.w("HostNetworking", "Oversized message rejected (${trimmed.length} bytes)")
+                    return
+                }
                 var skidlMessage = json.decodeFromString(SkidlMessageSerializer, trimmed)
                 if (skidlMessage is JoinMessage) {
                     val clientId = if (skidlMessage.playerId.isNotBlank()) skidlMessage.playerId else UUID.randomUUID().toString()

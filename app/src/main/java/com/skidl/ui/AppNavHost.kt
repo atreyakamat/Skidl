@@ -95,11 +95,17 @@ fun AppNavHost(
                 onSendGuess = viewModel::sendGuess,
                 onStrokeStart = viewModel::onStrokeStart,
                 onStrokePoint = viewModel::onStrokePoint,
-                onStrokeEnd = viewModel::onStrokeEnd
+                onStrokeEnd = viewModel::onStrokeEnd,
+                onUndo = viewModel::undoLastStroke,
+                onClearCanvas = viewModel::clearCanvas
             )
         }
         composable("scores") {
-            ScoresScreen(state = uiState)
+            ScoresScreen(
+                state = uiState,
+                onNextRound = viewModel::hostNextRound,
+                onBackToLobby = viewModel::backToLobby
+            )
         }
     }
 }

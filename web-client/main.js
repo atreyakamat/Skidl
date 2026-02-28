@@ -109,6 +109,34 @@
       case 'correct_guess':
         addGuess(message.playerId, message.word, true);
         break;
+      case 'round_start':
+        addSystemMessage(`Round started! Drawer: ${message.drawerId}`);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        break;
+      case 'secret_word_assigned':
+        if (message.drawerId === playerId) {
+          addSystemMessage(`Your word to draw: ${message.hash}`);
+        }
+        break;
+      case 'round_end':
+        addSystemMessage(`Round over! The word was: ${message.word}`);
+        break;
+      case 'game_end':
+        addSystemMessage('Game over! Final scores displayed.');
+        renderPlayers(message.scores || []);
+        break;
+      case 'player_left':
+        addSystemMessage(`${message.name} disconnected`);
+        break;
+      case 'timer_update':
+        break;
+      case 'canvas_clear':
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        break;
+      case 'stroke_remove':
+        break;
+      case 'heartbeat':
+        break;
       default:
         break;
     }
@@ -130,6 +158,16 @@
     const div = document.createElement('div');
     div.className = correct ? 'correct' : '';
     div.textContent = `${player}: ${text}`;
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
+  };
+
+  const addSystemMessage = (text) => {
+    const div = document.createElement('div');
+    div.className = 'system';
+    div.style.fontStyle = 'italic';
+    div.style.color = '#888';
+    div.textContent = text;
     messages.appendChild(div);
     messages.scrollTop = messages.scrollHeight;
   };

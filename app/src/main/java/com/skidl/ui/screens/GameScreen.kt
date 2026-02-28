@@ -43,12 +43,17 @@ fun GameScreen(
     onSendGuess: (String) -> Unit,
     onStrokeStart: (StrokeStartMessage) -> Unit,
     onStrokePoint: (StrokePointMessage) -> Unit,
-    onStrokeEnd: (StrokeEndMessage) -> Unit
+    onStrokeEnd: (StrokeEndMessage) -> Unit,
+    onUndo: () -> Unit = {},
+    onClearCanvas: () -> Unit = {}
 ) {
     val round = state.roundState
     var guess by remember { mutableStateOf("") }
     var selectedColor by remember { mutableStateOf(Color(0xFF000000)) }
     var thickness by remember { mutableStateOf(12f) }
+    val isDrawer = round?.drawerId == state.playerId
+    val drawerName = state.lobbyState?.players?.firstOrNull { it.playerId == round?.drawerId }?.name ?: round?.drawerId ?: ""
+    val players = state.lobbyState?.players.orEmpty()
 
     Column(
         modifier = Modifier
@@ -56,50 +61,88 @@ fun GameScreen(
             .padding(12.dp),
         verticalArrangement = Arrangement.Top
     ) {
+        // Header row: drawer name, round info, timer
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(text = "Drawer: ${round?.drawerId ?: ""}", style = MaterialTheme.typography.titleMedium)
+            Text(text = "Drawer: $drawerName", style = MaterialTheme.typography.titleMedium)
+            if (state.currentRound > 0) {
+                Text(text = "Round ${state.currentRound}/${state.totalRounds}", style = MaterialTheme.typography.bodySmall)
+            }
             Text(text = "Time: ${round?.secondsRemaining ?: 0}s", style = MaterialTheme.typography.titleMedium)
         }
+
+        // Show secret word to drawer
+        if (isDrawer && state.secretWordForDrawer != null) {
+            Text(
+                text = "Draw: ${state.secretWordForDrawer}",
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(vertical = 4.dp)
+            )
+        }
+
         Spacer(modifier = Modifier.height(8.dp))
-        ScoreboardRow(players = round?.scoreboard ?: state.lobbyState?.players.orEmpty())
+        ScoreboardRow(players = round?.scoreboard ?: players)
         Spacer(modifier = Modifier.height(8.dp))
-        DrawingCanvas(
-            strokes = round?.strokes ?: emptyList(),
-            selectedColor = selectedColor,
-            thickness = thickness,
-            playerId = state.playerId,
-            onStrokeStart = onStrokeStart,
-            onStrokePoint = onStrokePoint,
-            onStrokeEnd = onStrokeEnd
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-        BrushControls(
-            selectedColor = selectedColor,
-            onColorChange = { selectedColor = it },
-            thickness = thickness,
-            onThicknessChange = { thickness = it }
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-        GuessList(guesses = round?.guesses ?: emptyList())
-        Spacer(modifier = Modifier.height(8.dp))
-        OutlinedTextField(
-            value = guess,
-            onValueChange = { guess = it },
-            modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Guess the word") }
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Button(onClick = {
-            if (guess.isNotBlank()) {
-                onSendGuess(guess)
-                guess = ""
+
+        if (isDrawer) {
+            // Drawer: can draw on canvas
+            DrawingCanvas(
+                strokes = round?.strokes ?: emptyList(),
+                selectedColor = selectedColor,
+                thickness = thickness,
+                playerId = state.playerId,
+                onStrokeStart = onStrokeStart,
+                onStrokePoint = onStrokePoint,
+                onStrokeEnd = onStrokeEnd
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(onClick = onUndo, modifier = Modifier.weight(1f)) { Text("Undo") }
+                Button(onClick = onClearCanvas, modifier = Modifier.weight(1f)) { Text("Clear") }
             }
-        }, modifier = Modifier.fillMaxWidth()) {
-            Text("Send Guess")
+            Spacer(modifier = Modifier.height(8.dp))
+            BrushControls(
+                selectedColor = selectedColor,
+                onColorChange = { selectedColor = it },
+                thickness = thickness,
+                onThicknessChange = { thickness = it }
+            )
+        } else {
+            // Guesser: read-only canvas + guess input
+            DrawingCanvas(
+                strokes = round?.strokes ?: emptyList(),
+                selectedColor = selectedColor,
+                thickness = thickness,
+                playerId = state.playerId,
+                onStrokeStart = {},
+                onStrokePoint = {},
+                onStrokeEnd = {}
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            GuessList(guesses = round?.guesses ?: emptyList(), players = players)
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(
+                value = guess,
+                onValueChange = { guess = it },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("Guess the word") }
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(onClick = {
+                if (guess.isNotBlank()) {
+                    onSendGuess(guess)
+                    guess = ""
+                }
+            }, modifier = Modifier.fillMaxWidth()) {
+                Text("Send Guess")
+            }
         }
     }
 }
@@ -148,28 +191,29 @@ private fun ColorSwatch(color: Color, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun GuessList(guesses: List<GuessMessage>) {
+private fun GuessList(guesses: List<GuessMessage>, players: List<com.skidl.model.Player> = emptyList()) {
     LazyColumn(
         modifier = Modifier
             .fillMaxWidth()
             .height(150.dp)
     ) {
         items(guesses) { guess ->
-            GuessRow(guess)
+            GuessRow(guess, players)
         }
     }
 }
 
 @Composable
-private fun GuessRow(guess: GuessMessage) {
+private fun GuessRow(guess: GuessMessage, players: List<com.skidl.model.Player>) {
     val background = if (guess.isCorrect) Color(0xFF81C784) else Color.Transparent
+    val displayName = players.firstOrNull { it.playerId == guess.playerId }?.name ?: guess.playerId
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(background)
             .padding(8.dp)
     ) {
-        Text(text = guess.playerId, style = MaterialTheme.typography.bodySmall)
+        Text(text = displayName, style = MaterialTheme.typography.bodySmall)
         Text(text = guess.text, style = MaterialTheme.typography.bodyMedium)
     }
 }

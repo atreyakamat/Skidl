@@ -2,13 +2,16 @@ package com.skidl.network
 
 import com.skidl.model.CorrectGuessMessage
 import com.skidl.model.CanvasClearMessage
+import com.skidl.model.GameEndMessage
 import com.skidl.model.GuessNetworkMessage
 import com.skidl.model.HeartbeatMessage
 import com.skidl.model.HostAdvertisement
 import com.skidl.model.JoinMessage
 import com.skidl.model.LobbyUpdateMessage
 import com.skidl.model.PlayerJoinedMessage
+import com.skidl.model.PlayerLeftMessage
 import com.skidl.model.ReadyMessage
+import com.skidl.model.RoundEndMessage
 import com.skidl.model.RoundStartMessage
 import com.skidl.model.SecretWordAssignedMessage
 import com.skidl.model.SkidlMessage
@@ -46,6 +49,9 @@ object SkidlMessageSerializer : JsonContentPolymorphicSerializer<SkidlMessage>(S
             "heartbeat" -> HeartbeatMessage.serializer()
             "timer_update" -> TimerUpdateMessage.serializer()
             "canvas_clear" -> CanvasClearMessage.serializer()
+            "player_left" -> PlayerLeftMessage.serializer()
+            "round_end" -> RoundEndMessage.serializer()
+            "game_end" -> GameEndMessage.serializer()
             else -> throw IllegalArgumentException("Unsupported message type $type")
         }
     }
