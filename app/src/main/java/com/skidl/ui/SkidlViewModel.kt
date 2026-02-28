@@ -32,6 +32,7 @@ import com.skidl.util.NetworkDefaults
 import java.net.NetworkInterface
 import java.util.Collections
 import java.util.UUID
+import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -53,6 +54,7 @@ class SkidlViewModel(
         ignoreUnknownKeys = true
         prettyPrint = false
         explicitNulls = false
+        classDiscriminator = "#class"
     }
 
     private val wordBank = WordBank(context)
@@ -60,7 +62,15 @@ class SkidlViewModel(
     private var currentSecretWord: String? = null
     private var totalRounds: Int = 3
     private var currentRoundNumber: Int = 0
-    private val guessTimestamps = mutableMapOf<String, MutableList<Long>>()
+    private val guessTimestamps = java.util.concurrent.ConcurrentHashMap<String, MutableList<Long>>()
+    private val correctGuessers = mutableSetOf<String>() // track who already guessed correctly this round
+    private var errorDismissJob: Job? = null
+    companion object {
+        private const val MAX_PLAYERS = 12
+        private const val MAX_NAME_LENGTH = 24
+        private const val MAX_GUESS_LENGTH = 100
+        private const val ERROR_DISMISS_MS = 5000L
+    }
 
     private val discoveryListener = DiscoveryListener(applicationScope, json)
     private val hostNetworking = HostNetworkingManager(applicationScope, json)
@@ -103,7 +113,7 @@ class SkidlViewModel(
     }
 
     fun setPlayerName(name: String) {
-        _state.update { it.copy(displayName = name) }
+        _state.update { it.copy(displayName = name.take(MAX_NAME_LENGTH)) }
     }
 
     fun setRoomCode(code: String) {
@@ -123,9 +133,14 @@ class SkidlViewModel(
         val roomName = state.value.roomName.ifBlank { "Skidl Room" }
         val hostIp = resolveLocalIp()
         gameController = GameController(playerId, roomName)
-        val hostPlayer = Player(playerId = playerId, name = state.value.displayName.ifBlank { "Host" }, isHost = true)
+        val hostPlayer = Player(playerId = playerId, name = state.value.displayName.ifBlank { "Host" }.take(MAX_NAME_LENGTH), isHost = true)
         gameController?.updatePlayer(hostPlayer)
-        hostNetworking.start()
+        val serverStarted = hostNetworking.start()
+        if (!serverStarted) {
+            showError("Failed to start server. Port may be in use.")
+            gameController = null
+            return
+        }
         discoveryBroadcaster.start(roomName, 1, NetworkDefaults.WEBSOCKET_PORT)
         discoveryBroadcaster.update(roomName, 1)
         heartbeatJob?.cancel()
@@ -216,8 +231,13 @@ class SkidlViewModel(
     }
 
     fun sendGuess(text: String) {
+        val trimmed = text.trim().take(MAX_GUESS_LENGTH)
+        if (trimmed.isBlank()) return
+        // Prevent drawer from guessing
+        val round = _state.value.roundState
+        if (round?.drawerId == _state.value.playerId) return
         val playerId = _state.value.playerId
-        val guess = com.skidl.model.GuessNetworkMessage(playerId = playerId, text = text)
+        val guess = com.skidl.model.GuessNetworkMessage(playerId = playerId, text = trimmed)
         if (_state.value.isHosting) {
             handleGuess(playerId, guess)
         } else {
@@ -368,18 +388,31 @@ class SkidlViewModel(
 
     private fun handleJoin(playerId: String, message: JoinMessage) {
         val controller = gameController ?: return
+        val lobby = controller.lobby.value
+        // Max player limit
+        if (lobby.players.size >= MAX_PLAYERS) {
+            Log.w("SkidlViewModel", "Max player limit reached ($MAX_PLAYERS), rejecting $playerId")
+            hostNetworking.kick(playerId)
+            return
+        }
+        // Prevent duplicate player IDs
+        if (lobby.players.any { it.playerId == playerId }) {
+            Log.w("SkidlViewModel", "Duplicate playerId: $playerId")
+            return
+        }
+        // Sanitize name
+        val safeName = message.name.trim().take(MAX_NAME_LENGTH).ifBlank { "Player" }
         val newPlayer = Player(
             playerId = playerId,
-            name = message.name,
+            name = safeName,
             isHost = false,
             isReady = false
         )
         controller.updatePlayer(newPlayer)
-        val lobby = controller.lobby.value
+        val updatedLobby = controller.lobby.value
         hostNetworking.broadcast(PlayerJoinedMessage(player = newPlayer))
-        hostNetworking.broadcast(com.skidl.model.LobbyUpdateMessage(players = lobby.players))
-        gameController?.setPlayers(lobby.players)
-        discoveryBroadcaster.update(lobby.settings.roomName, lobby.players.size)
+        hostNetworking.broadcast(com.skidl.model.LobbyUpdateMessage(players = updatedLobby.players))
+        discoveryBroadcaster.update(updatedLobby.settings.roomName, updatedLobby.players.size)
         _state.update { it.copy(lobbyState = controller.lobby.value) }
     }
 
@@ -395,6 +428,11 @@ class SkidlViewModel(
         val round = gameController?.round?.value ?: return
         val lobby = gameController?.lobby?.value ?: return
 
+        // Prevent drawer from guessing
+        if (playerId == round.drawerId) return
+        // Prevent guessing if player already guessed correctly
+        if (playerId in correctGuessers) return
+
         // Rate-limit: max 3 guesses per 2 seconds per player
         val now = System.currentTimeMillis()
         val timestamps = guessTimestamps.getOrPut(playerId) { mutableListOf() }
@@ -402,12 +440,17 @@ class SkidlViewModel(
         if (timestamps.size >= 3) return
         timestamps.add(now)
 
-        val isCorrect = currentSecretWord?.equals(guess.text, ignoreCase = true) == true
-        val guessMessage = GuessMessage(playerId, guess.text, now, isCorrect)
+        // Sanitize guess text
+        val safeText = guess.text.trim().take(MAX_GUESS_LENGTH)
+        if (safeText.isBlank()) return
+
+        val isCorrect = currentSecretWord?.equals(safeText, ignoreCase = true) == true
+        val guessMessage = GuessMessage(playerId, safeText, now, isCorrect)
         gameController?.appendGuess(guessMessage)
-        hostNetworking.broadcast(guess)
+        hostNetworking.broadcast(com.skidl.model.GuessNetworkMessage(playerId = guess.playerId, text = safeText))
 
         if (isCorrect) {
+            correctGuessers.add(playerId)
             val points = scoreManager.recordCorrectGuess(playerId, round.secondsRemaining)
             val player = lobby.players.firstOrNull { it.playerId == playerId }
             if (player != null) {
@@ -588,11 +631,9 @@ class SkidlViewModel(
         hostNetworking.broadcast(com.skidl.model.LobbyUpdateMessage(players = lobby.players))
         discoveryBroadcaster.update(lobby.settings.roomName, lobby.players.size)
         _state.update {
-            it.copy(
-                lobbyState = lobby,
-                error = "${player.name} disconnected"
-            )
+            it.copy(lobbyState = lobby)
         }
+        showError("${player.name} disconnected")
     }
 
     private fun handlePlayerLeft(message: com.skidl.model.PlayerLeftMessage) {
@@ -600,8 +641,9 @@ class SkidlViewModel(
             val lobby = it.lobbyState?.copy(
                 players = it.lobbyState.players.filterNot { p -> p.playerId == message.playerId }
             )
-            it.copy(lobbyState = lobby, error = "${message.name} disconnected")
+            it.copy(lobbyState = lobby)
         }
+        showError("${message.name} disconnected")
     }
 
     private fun handleRoundEnd(message: com.skidl.model.RoundEndMessage) {
@@ -648,6 +690,7 @@ class SkidlViewModel(
             val word = wordBank.nextWord()
             currentSecretWord = word
             guessTimestamps.clear()
+            correctGuessers.clear()
             controller.startRound(drawerId, word, controller.lobby.value.settings.roundTimeSeconds)
             scoreManager.getScores(controller.lobby.value.players)
             val round = controller.round.value
@@ -705,6 +748,13 @@ class SkidlViewModel(
         currentRoundNumber = 0
         scoreManager.reset()
         guessTimestamps.clear()
+        correctGuessers.clear()
+        // Broadcast lobby update so clients navigate back
+        if (_state.value.isHosting) {
+            gameController?.lobby?.value?.let { lobby ->
+                hostNetworking.broadcast(com.skidl.model.LobbyUpdateMessage(players = lobby.players))
+            }
+        }
         _state.update {
             it.copy(
                 screen = SkidlScreen.Lobby,
@@ -745,6 +795,20 @@ class SkidlViewModel(
 
     private fun sendClientMessage(message: SkidlMessage) {
         clientNetworking.send(message)
+    }
+
+    private fun showError(message: String) {
+        _state.update { it.copy(error = message) }
+        errorDismissJob?.cancel()
+        errorDismissJob = viewModelScope.launch {
+            delay(ERROR_DISMISS_MS)
+            _state.update { it.copy(error = null) }
+        }
+    }
+
+    fun clearError() {
+        errorDismissJob?.cancel()
+        _state.update { it.copy(error = null) }
     }
 
     private fun resolveLocalIp(): String {

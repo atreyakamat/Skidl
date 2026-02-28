@@ -1,6 +1,7 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <style name="Theme.Skidl" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="android:statusBarColor" tools:targetApi="l">@color/md_theme_dark_primary</item>
-        <item name="android:navigationBarColor">@android:color/black</item>
+        <item name="android:statusBarColor" tools:targetApi="l">@color/coral_pink</item>
+        <item name="android:navigationBarColor">@color/cream_white</item>
+        <item name="android:windowLightStatusBar" tools:targetApi="m">false</item>
     </style>
 </resources>

@@ -1,5 +1,9 @@
 package com.skidl.ui
 
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
@@ -12,6 +16,8 @@ import com.skidl.ui.screens.JoinScreen
 import com.skidl.ui.screens.LobbyScreen
 import com.skidl.ui.screens.ScoresScreen
 import com.skidl.ui.screens.WelcomeScreen
+
+private const val NAV_ANIM_DURATION = 300
 
 @Composable
 fun AppNavHost(
@@ -40,7 +46,23 @@ fun AppNavHost(
     NavHost(
         navController = navController,
         startDestination = "welcome",
-        modifier = modifier
+        modifier = modifier,
+        enterTransition = {
+            fadeIn(animationSpec = tween(NAV_ANIM_DURATION)) +
+                slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Start, tween(NAV_ANIM_DURATION))
+        },
+        exitTransition = {
+            fadeOut(animationSpec = tween(NAV_ANIM_DURATION)) +
+                slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Start, tween(NAV_ANIM_DURATION))
+        },
+        popEnterTransition = {
+            fadeIn(animationSpec = tween(NAV_ANIM_DURATION)) +
+                slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.End, tween(NAV_ANIM_DURATION))
+        },
+        popExitTransition = {
+            fadeOut(animationSpec = tween(NAV_ANIM_DURATION)) +
+                slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.End, tween(NAV_ANIM_DURATION))
+        }
     ) {
         composable("welcome") {
             WelcomeScreen(

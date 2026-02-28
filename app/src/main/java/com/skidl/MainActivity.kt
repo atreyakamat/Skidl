@@ -3,13 +3,16 @@ package com.skidl
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.material3.Surface
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -19,7 +22,9 @@ import com.skidl.ui.theme.SkidlTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         val app = application as SkidlApplication
         setContent {
             val viewModel: SkidlViewModel = viewModel(
@@ -27,7 +32,16 @@ class MainActivity : ComponentActivity() {
             )
             val uiState by viewModel.state.collectAsState()
             SkidlTheme(darkTheme = isSystemInDarkTheme()) {
-                AppNavHost(uiState = uiState, viewModel = viewModel)
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    AppNavHost(
+                        uiState = uiState,
+                        viewModel = viewModel,
+                        modifier = Modifier.systemBarsPadding()
+                    )
+                }
             }
         }
     }

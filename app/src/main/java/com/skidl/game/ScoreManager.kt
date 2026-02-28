@@ -1,10 +1,11 @@
 package com.skidl.game
 
 import com.skidl.model.Player
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.max
 
 class ScoreManager {
-    private val scores = mutableMapOf<String, Int>()
+    private val scores = ConcurrentHashMap<String, Int>()
 
     fun recordCorrectGuess(playerId: String, timeRemaining: Int, basePoints: Int = 100): Int {
         val bonus = max(timeRemaining, 0)

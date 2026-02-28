@@ -11,9 +11,11 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonDecodingException
+import java.net.SocketTimeoutException
 
 class DiscoveryListener(
     private val scope: CoroutineScope,
@@ -35,18 +37,21 @@ class DiscoveryListener(
             DatagramSocket(NetworkDefaults.UDP_PORT).use { udpSocket ->
                 socket = udpSocket
                 udpSocket.broadcast = true
+                udpSocket.soTimeout = 1000 // allow cancellation check every 1s
                 val buffer = ByteArray(1024)
                 val packet = DatagramPacket(buffer, buffer.size)
-                while (true) {
+                while (isActive) {
                     try {
                         udpSocket.receive(packet)
                         val message = String(packet.data, 0, packet.length)
                         val ad = json.decodeFromString(HostAdvertisement.serializer(), message)
                         _hosts.emit(ad)
+                    } catch (_: SocketTimeoutException) {
+                        // Expected — loop back and check isActive
                     } catch (ex: JsonDecodingException) {
                         Log.w("DiscoveryListener", "Invalid broadcast: ${ex.localizedMessage}")
                     } catch (t: Throwable) {
-                        Log.e("DiscoveryListener", "Discovery failed", t)
+                        if (isActive) Log.e("DiscoveryListener", "Discovery failed", t)
                         break
                     }
                 }

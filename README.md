@@ -1,108 +1,162 @@
-# Skidl
+# 🎨 Hotspot Skribble
 
-HotspotSkribble (Skidl) is a local-only drawing and guessing party game designed to run entirely over an Android hotspot. One device hosts the lobby while others join via the in-app discovery flow or by entering the host IP manually. A lightweight browser client is provided for quick testing over WebSockets.
+> **Draw. Guess. Laugh.** — A LAN multiplayer drawing & guessing party game for Android.
 
-## Features
-- Host and client modes in a single Android application written in Kotlin with Jetpack Compose.
-- UDP broadcast discovery on port 60000 with manual IP fallback and optional room code.
-- Embedded WebSocket server for the host (Java-WebSocket) and OkHttp-based client connections on port 50000.
-- Realtime drawing canvas with color picker, stroke width, undo hook, and synchronized strokes.
-- Guess chat with automatic scoring, scoreboard, and round management.
-- Heartbeat and reconnect-ready networking layer with JSON message schema.
-- Companion web client for desktop testing via manual WebSocket connection.
-- GitHub Actions pipeline building a signed release APK artifact.
+No internet required. One device creates a Wi-Fi hotspot, others connect and play. That's it.
 
-## Getting Started
-1. **Requirements**
-   - Android Studio Giraffe+ with JDK 17
-   - Android device or emulator running Android 8.0 (API 26) or later
-   - Local network / hotspot with multicast enabled (for discovery)
+---
 
-2. **Build (Debug)**
-   ```bash
-   ./gradlew assembleDebug
-   ```
+## 🚀 Quick Start
 
-3. **Release Signing**
-   - Create a keystore (example):
-     ```bash
-     keytool -genkeypair -v \
-       -keystore keystore/release-keystore.jks \
-       -keyalg RSA -keysize 2048 -validity 10000 \
-       -alias hotspot_skribble_key
-     ```
-   - Create `keystore.properties` (not committed):
-     ```properties
-     storeFile=keystore/release-keystore.jks
-     storePassword=change-me
-     keyAlias=hotspot_skribble_key
-     keyPassword=change-me
-     ```
-   - Run
-     ```bash
-     ./make_apk.sh
-     ```
-     The signed APK will be located at `app/build/outputs/apk/release/app-release.apk`.
+### Play in 60 Seconds
+1. **Host** enables their phone's **Wi-Fi Hotspot**
+2. **Players** connect their phones to that hotspot's Wi-Fi
+3. Host opens the app → taps **Host Game** → sets room name → **Start Hosting**
+4. Players open the app → tap **Join Game** → pick the discovered host (or enter IP manually)
+5. Everyone readies up → Host taps **Start Round** → Draw and guess!
 
-4. **GitHub Actions**
-   - Add repository secrets: `KEYSTORE_BASE64`, `STORE_PASSWORD`, `KEY_ALIAS`, and `KEY_PASSWORD`.
-   - The workflow `.github/workflows/build-apk.yml` produces a signed APK artifact on every push to `main` or manual dispatch.
+### Build the APK
+```bash
+# Debug build (no signing required)
+./make_apk.sh
 
-## Networking Overview
-- **Discovery**: Host broadcasts JSON advertisements every 700ms on UDP port `60000`.
-- **WebSocket**: Server listens on TCP `50000`. Clients use OkHttp, host uses `org.java-websocket`.
-- **Messages**: Newline-delimited JSON objects. Core message types are described in `com.skidl.model.Messages.kt`.
+# Release build (requires keystore.properties)
+./make_apk.sh release
+```
+
+**Prerequisites:** JDK 17+, Android SDK 34, `ANDROID_HOME` environment variable set.
+
+---
+
+## 🎮 How It Works
+
+| Role | What You Do |
+|------|-------------|
+| **Drawer** | Sees the secret word, draws on canvas with colors & brush sizes |
+| **Guessers** | See the drawing in real-time, type guesses |
+| **Scoring** | 100 base pts + time bonus (seconds remaining). Faster = more points |
+
+### Game Flow
+```
+Welcome → Host Setup / Join → Lobby → Game (draw/guess) → Scores → Next Round / Game Over
+```
+
+- **Rounds:** Configurable (default 3). Each round picks a new drawer round-robin.
+- **Timer:** 90 seconds per round (configurable).
+- **Words:** Loaded from `assets/words.json` — easy to customize.
+
+---
+
+## 🏗 Architecture
+
+```
+┌─────────────┐     WebSocket (port 50000)     ┌─────────────┐
+│   HOST      │◄──────────────────────────────►│   CLIENT    │
+│  Device     │     UDP Broadcast (port 60000)  │  Device(s)  │
+└─────────────┘                                 └─────────────┘
+```
+
+- **Host-authoritative model**: Host runs an embedded WebSocket server + UDP broadcaster
+- **Clients**: Discover host via UDP, connect via WebSocket
+- **All communication** is JSON over WebSocket (newline-delimited)
+- **Zero internet dependency** — everything runs on the local hotspot network
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the full technical deep-dive.
+
+---
+
+## 📁 Project Structure
+
+```
+app/src/main/java/com/skidl/
+├── model/          # Data classes: Player, Stroke, GameState, Messages
+├── game/           # GameController, ScoreManager, WordBank
+├── network/        # Host/Client networking, Discovery, Serializer
+├── ui/
+│   ├── screens/    # 6 Compose screens (Welcome → Scores)
+│   ├── components/ # DrawingCanvas, QrCode
+│   └── theme/      # Color/Theme/Type (goofy party palette)
+└── util/           # Constants
+```
+
+---
+
+## 🧪 Testing
+
+```bash
+# Run all unit tests
+./gradlew testDebugUnitTest
+```
+
+Tests cover:
+- **ScoreManager** — 10 test cases (scoring, accumulation, reset, edge cases)
+- **SkidlMessageSerializer** — 22 test cases (all 20 message types + error handling)
+- **GameController** — 20 test cases (lobby, rounds, strokes, guesses, timer)
+- **Model data classes** — 8 test cases (defaults, copying, edge values)
+
+See [QA_REPORT.md](QA_REPORT.md) for the full testing report.
+
+---
+
+## 🔌 Network Protocol
+
+20 message types over JSON/WebSocket. See [NETWORK_PROTOCOL.md](NETWORK_PROTOCOL.md) for the complete specification.
 
 ### Sample Messages
 ```json
-{"type":"host_ad","roomName":"Skidl Room","ip":"192.168.43.1","port":50000,"roomId":"r123"}
+{"type":"host_ad","roomName":"Party Room","ip":"192.168.43.1","port":50000,"roomId":"r123","players":4}
 {"type":"join","playerId":"p123","name":"Atreya"}
 {"type":"stroke_start","strokeId":"s1","playerId":"p123","color":"#000000","thickness":4,"x":120,"y":220,"timestamp":1690000000}
 {"type":"correct_guess","playerId":"p234","word":"apple","points":120}
+{"type":"round_end","word":"apple","scores":[{"playerId":"p234","name":"Bob","score":120}]}
 ```
 
-## Web Client
-Located in `web-client/`.
-1. Serve via any static file server (e.g. `python -m http.server`).
-2. Open in a browser connected to the same hotspot.
-3. Enter `ws://<HOST_IP>:50000`, pick a name, and click **Connect**.
-4. Draw directly on the canvas or submit guesses.
+---
 
-## Testing
-- **Unit tests**: `./gradlew test`
-- **Instrumentation**: `./gradlew connectedAndroidTest`
+## 🌐 Web Client
 
-Included tests:
-- Message serialization/deserialization coverage.
-- Drawing persistence logic ensures stroke events are retained in the game controller.
+Located in `web-client/`. For desktop testing:
+1. Serve via `python -m http.server` (from `web-client/` directory)
+2. Open browser connected to same hotspot Wi-Fi
+3. Enter `ws://<HOST_IP>:50000`, set name, click **Connect**
+4. Draw & guess directly from the browser
 
-## Privacy Notice
-Skidl communicates only over the local hotspot network. Player display names are stored in memory for the duration of the session and cleared when the host ends the game. No personal or gameplay data is transmitted to external services.
+---
 
-## Known Limitations
-- Embedded WebSocket server binds to all interfaces; ensure firewall rules permit local traffic.
-- UDP broadcast may be restricted on some OEM devices; manual IP entry and QR sharing are provided as fallback.
-- Round timer and reconnect behaviour are basic and may need refinement for large lobbies.
-- Hotspot must be activated manually in device settings prior to hosting.
+## 📋 Configuration
 
-## Project Structure
-```
-app/                    Android application module
-  src/main/java/com/skidl
-    ui/                 Compose screens and state management
-    network/            Discovery + WebSocket managers
-    game/               Game engine, scoring, word bank
-    model/              Shared data classes and serialization
-web-client/             Browser reference client
-.github/workflows/      CI pipeline for signed APK builds
-ci/                     Reserved for additional automation scripts
-```
+| Setting | Default | Location |
+|---------|---------|----------|
+| WebSocket Port | 50000 | `Constants.kt` |
+| UDP Discovery Port | 60000 | `Constants.kt` |
+| Broadcast Interval | 700ms | `Constants.kt` |
+| Heartbeat Interval | 10s | `Constants.kt` |
+| Round Time | 90s | `GameSettings` |
+| Total Rounds | 3 | `SkidlViewModel` |
+| Max Message Size | 16KB | Host/Client managers |
+| Reconnect Attempts | 3 | `ClientNetworkingManager` |
 
-## QA Checklist (Summary)
-- Host discovery across two Android devices on hotspot.
-- Realtime drawing latency under ~200ms within hotspot network.
-- Scoreboard updates after correct guess confirmation.
-- Manual IP join validated when discovery disabled.
-- Signed release APK installs on Android 8.0+.
+---
 
-Enjoy sketching with Skidl!
+## 🔒 Privacy
+
+Hotspot Skribble communicates only over the local hotspot network. Player names are stored in memory for the session duration and cleared when the host ends. No data is transmitted to external services.
+
+---
+
+## 📄 Documentation Index
+
+| Document | Description |
+|----------|-------------|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture & design decisions |
+| [NETWORK_PROTOCOL.md](NETWORK_PROTOCOL.md) | Complete message protocol specification |
+| [QA_REPORT.md](QA_REPORT.md) | Testing report & edge case analysis |
+| [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) | Known issues & workarounds |
+| [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) | Pre-release verification checklist |
+| [INSTALL.md](INSTALL.md) | Developer setup & build instructions |
+
+---
+
+## License
+
+Private / Internal Use — All rights reserved.

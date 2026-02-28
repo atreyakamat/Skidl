@@ -18,11 +18,17 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
+import java.util.concurrent.TimeUnit
 
 class ClientNetworkingManager(
     private val scope: CoroutineScope,
     private val json: Json,
-    private val client: OkHttpClient = OkHttpClient()
+    private val client: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
+        .pingInterval(15, TimeUnit.SECONDS)
+        .build()
 ) {
     companion object {
         private const val MAX_MESSAGE_SIZE = 16_384
@@ -61,12 +67,17 @@ class ClientNetworkingManager(
 
     fun send(message: SkidlMessage) {
         val ws = webSocket ?: return
-        val jsonString = json.encodeToString(message) + "\n"
-        ws.send(jsonString)
+        try {
+            val jsonString = json.encodeToString(message) + "\n"
+            ws.send(jsonString)
+        } catch (e: Exception) {
+            Log.e("ClientNetworking", "Send failed", e)
+        }
     }
 
     private inner class SkidlClientListener : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
+            reconnectAttempts = 0
             _connectionState.value = ConnectionState.Connected
         }
 

@@ -4,9 +4,23 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <group android:translateX="16" android:translateY="16">
-        <path
-            android:fillColor="#FFFFFF"
-            android:pathData="M46,6c-8,0 -14,6 -14,14s6,14 14,14 14,-6 14,-14 -6,-14 -14,-14zM14,16c-6.63,0 -12,5.37 -12,12s5.37,12 12,12 12,-5.37 12,-12 -5.37,-12 -12,-12zM14,44c-6.63,0 -12,5.37 -12,12s5.37,12 12,12 12,-5.37 12,-12 -5.37,-12 -12,-12zM46,44c-8,0 -14,6 -14,14s6,14 14,14 14,-6 14,-14 -6,-14 -14,-14z" />
-    </group>
+    <!-- Pencil body -->
+    <path
+        android:fillColor="#FFD93D"
+        android:pathData="M35,25 L73,63 L63,73 L25,35 Z" />
+    <!-- Pencil tip -->
+    <path
+        android:fillColor="#FF6B6B"
+        android:pathData="M25,35 L18,42 L20,44 L35,25 Z" />
+    <!-- Eraser -->
+    <path
+        android:fillColor="#4D96FF"
+        android:pathData="M73,63 L80,56 L78,54 L63,73 Z" />
+    <!-- Star sparkle -->
+    <path
+        android:fillColor="#6BCB77"
+        android:pathData="M82,28 L84,22 L86,28 L92,30 L86,32 L84,38 L82,32 L76,30 Z" />
+    <path
+        android:fillColor="#FF6B6B"
+        android:pathData="M20,70 L21,67 L22,70 L25,71 L22,72 L21,75 L20,72 L17,71 Z" />
 </vector>
