@@ -16,15 +16,21 @@ No internet required. One device creates a Wi-Fi hotspot, others connect and pla
 5. Everyone readies up → Host taps **Start Round** → Draw and guess!
 
 ### Build the APK
+
+**📋 For detailed build instructions, see [BUILD_INSTRUCTIONS.md](BUILD_INSTRUCTIONS.md)**
+
+Quick build:
 ```bash
 # Debug build (no signing required)
 ./make_apk.sh
 
-# Release build (requires keystore.properties)
+# Release build (keystore already configured!)
 ./make_apk.sh release
 ```
 
 **Prerequisites:** JDK 17+, Android SDK 34, `ANDROID_HOME` environment variable set.
+
+**✅ Release signing is already configured** - keystore and credentials are ready!
 
 ---
 
@@ -148,11 +154,15 @@ Hotspot Skribble communicates only over the local hotspot network. Player names 
 
 | Document | Description |
 |----------|-------------|
+| [BUILD_INSTRUCTIONS.md](BUILD_INSTRUCTIONS.md) | **START HERE** - Complete build guide with prerequisites and troubleshooting |
+| [PROJECT_STATUS.md](PROJECT_STATUS.md) | Project completion status and what's ready |
+| [SIDELOAD_GUIDE.md](SIDELOAD_GUIDE.md) | Step-by-step sideloading instructions |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture & design decisions |
 | [NETWORK_PROTOCOL.md](NETWORK_PROTOCOL.md) | Complete message protocol specification |
 | [QA_REPORT.md](QA_REPORT.md) | Testing report & edge case analysis |
 | [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) | Known issues & workarounds |
 | [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) | Pre-release verification checklist |
+| [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) | Comprehensive deployment options |
 | [INSTALL.md](INSTALL.md) | Developer setup & build instructions |
 
 ---
