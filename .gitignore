@@ -1,8 +1,10 @@
 .gradle/
 local.properties
 .keystore
-keystore/*.jks
-keystore.properties
+# keystore/*.jks - UNCOMMENTING to include dev keystore for sideloading
+# keystore.properties - UNCOMMENTING to include dev properties for sideloading
+# NOTE: These contain development credentials (skidl2026).
+# For production use, generate new keystore with secure passwords and re-enable these ignores.
 app/build/
 build/
 *.iml
